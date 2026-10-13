@@ -10,8 +10,17 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+import google.generativeai as genai
 
+# --- Tokenlar va Sozlamalar ---
 TOKEN = os.getenv("BOT_TOKEN", "BU_YERGA_TOKEN_QOYING")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    ai_model = genai.GenerativeModel("gemini-1.5-flash")
+else:
+    ai_model = None
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -27,10 +36,9 @@ class BuyerFlow(StatesGroup):
 # --- Tugmalar (Interfeys) ---
 
 def main_role_cards() -> InlineKeyboardMarkup:
-    """Asosiy 3 ta rol kartochkasi"""
     keyboard = [
         [InlineKeyboardButton(text="🏦 1. Bank Assistent (Escrow & To'lov)", callback_data="role_bank")],
-        [InlineKeyboardButton(text="🏪 2. Sotuvchi Assistent (Kartochka tuzuvchi)", callback_data="role_seller")],
+        [InlineKeyboardButton(text="🏪 2. Sotuvchi Assistent (AI Kartochka)", callback_data="role_seller")],
         [InlineKeyboardButton(text="🛍 3. Xaridor Assistent (Uzum Qidiruv)", callback_data="role_buyer")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -50,7 +58,7 @@ def bank_menu_kb() -> InlineKeyboardMarkup:
 
 def seller_menu_kb() -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton(text="📝 Yangi kartochka yaratish / optimallashtirish", callback_data="seller_create_card")],
+        [InlineKeyboardButton(text="📝 AI bilan yangi kartochka tuzish", callback_data="seller_create_card")],
         [InlineKeyboardButton(text="🏷 Teglar va SEO tahlili", callback_data="seller_seo_tips")],
         [InlineKeyboardButton(text="🔙 Asosiy menyuga qaytish", callback_data="back_to_main")]
     ]
@@ -65,7 +73,7 @@ def buyer_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-# --- Buyruqlar menyusini Telegramga kiritish ---
+# --- Buyruqlar menyusi ---
 
 async def setup_commands(bot_instance: Bot):
     commands = [
@@ -77,15 +85,15 @@ async def setup_commands(bot_instance: Bot):
     await bot_instance.set_my_commands(commands)
 
 
-# --- Asosiy Menyuni ko'rsatish funksiyasi ---
+# --- Asosiy Menyu ---
 
 async def show_main_menu(target: types.Message | types.CallbackQuery, is_callback: bool = False):
     caption = (
-        "👋 **Uzum PoC Ko'p Modulli Tizimiga xush kelibsiz!**\n\n"
+        "👋 **Uzum PoC Ko'p Modulli AI Tizimiga xush kelibsiz!**\n\n"
         "O'zingizga kerakli bo'lim kartochkasini tanlang:\n\n"
         "💳 **Bank Assistent:** To'lovlar xavfsizligi va Escrow deponentlash nazorati.\n"
-        "📦 **Sotuvchi Assistent:** Tovarlar uchun professional kartochkalar tuzish va tavsif tayyorlash.\n"
-        "🔍 **Xaridor Assistent:** Uzum Market bo'yicha qidiruv va tavsiyalar tizimi."
+        "📦 **Sotuvchi Assistent:** Gemini AI yordamida tovar kartochkasini professional formatlash.\n"
+        "🔍 **Xaridor Assistent:** Uzum Market katalogidan tovar qidirish tizimi."
     )
     if is_callback:
         await target.message.edit_text(caption, reply_markup=main_role_cards(), parse_mode="Markdown")
@@ -94,7 +102,7 @@ async def show_main_menu(target: types.Message | types.CallbackQuery, is_callbac
         await target.answer(caption, reply_markup=main_role_cards(), parse_mode="Markdown")
 
 
-# --- START va Buyruqlar ---
+# --- START va Navigatsiya ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -151,7 +159,7 @@ async def cb_bank_gateway(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# --- 2-KARTA: SOTUVCHI ASSISTENT ---
+# --- 2-KARTA: SOTUVCHI ASSISTENT (GEMINI AI INTEGRATSIYASI) ---
 
 @dp.message(Command("sotuvchi"))
 @dp.callback_query(F.data == "role_seller")
@@ -159,8 +167,8 @@ async def show_seller_card(event: types.Message | types.CallbackQuery):
     card_text = (
         "🏪 **SOTUVCHI (MERCHANT) ASSISTENTI KARTASI**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "• **Vazifa:** Tovarlar kartochkasini Uzum Market talablari asosida formatlash\n"
-        "• **Imkoniyat:** Xususiyatlarni tartiblash, jozibador sarlavha va SEO kalit so'zlarni shakllantirish\n"
+        "• **Vazifa:** Gemini AI yordamida Uzum Market uchun professional kartochka tayyorlash\n"
+        "• **Imkoniyat:** Xususiyatlarni tartiblash, jozibador sarlavha va SEO kalit so'zlar\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "Kerakli bo'limni tanlang:"
     )
@@ -175,9 +183,8 @@ async def cb_seller_create(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(SellerFlow.waiting_for_product)
     text = (
         "📝 **Mahsulot ma'lumotlarini kiriting:**\n\n"
-        "Menga tovar nomi, taxminiy narxi va asosiy xususiyatini yozib yuboring.\n"
-        "*(Masalan: 'Simsiz naushnik M10, 85000 so'm, shovqinni bosuvchi, qora rang')*\n\n"
-        "Assistent uni Uzum Market standarti bo'yicha kartochkaga aylantirib beradi."
+        "Tovar nomi, taxminiy narxi va asosiy xususiyatini erkin shaklda yozing.\n"
+        "*(Masalan: 'Simsiz naushnik M10, 85000 so'm, shovqinni bosuvchi, qora rang')*"
     )
     await callback.message.edit_text(text, reply_markup=back_to_main_kb(), parse_mode="Markdown")
     await callback.answer()
@@ -187,28 +194,35 @@ async def process_seller_product(message: types.Message, state: FSMContext):
     user_input = message.text
     await state.clear()
 
-    # Standartlashtirilgan kartochka generatsiyasi
-    structured_card = (
-        "✅ **UZUM MARKET UCHUN TAYYOR KARTOCHKA:**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Sarlavha:** {user_input[:40].title()} (Rasmiy kafolat bilan)\n"
-        f"🏷 **Kategoriya:** Elektronika / Aksessuarlar\n"
-        f"⚙️ **Tavsif:**\n"
-        f"• Original sifat va qulay ergonomik dizayn\n"
-        f"• Asosiy parametrlar: {user_input}\n"
-        f"• Tezkor 1 kunlik yetkazib berish punkti (PVZ) kafolati\n\n"
-        "🔍 **SEO Qidiruv teglari:** #uzum #top_tovar #chegirma #sifatli\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Kartochkani Uzum Seller shaxsiy kabinetiga nusxalab olishingiz mumkin."
-    )
-    await message.answer(structured_card, reply_markup=seller_menu_kb(), parse_mode="Markdown")
+    wait_msg = await message.answer("🤖 Gemini AI kartochkani shakllantirmoqda...")
+
+    if ai_model:
+        prompt = (
+            f"Foydalanuvchi Uzum Market sotuvchisi. U quyidagi tovar ma'lumotini kiritdi:\n'{user_input}'\n\n"
+            "Ushbu tovar uchun Uzum Market standarti bo'yicha tayyor kartochka yaratib ber:\n"
+            "1. Jozibador rasmiy sarlavha\n"
+            "2. Asosiy 3-4 ta afzalligi (bullet point bilan)\n"
+            "3. Qisqa va sotuvchan tavsif\n"
+            "4. 5 ta SEO qidiruv teglari (#bilan)\n"
+            "Javobni aniq o'zbek tilida va Telegram Markdown formatiga moslab qaytar."
+        )
+        try:
+            response = ai_model.generate_content(prompt)
+            result_text = response.text
+        except Exception as e:
+            result_text = f"Xatolik yuz berdi: {str(e)}"
+    else:
+        result_text = "⚠️ Gemini API kaliti ulanmagan. Render muhit sozlamalarini (Environment) tekshiring."
+
+    await wait_msg.delete()
+    await message.answer(result_text, reply_markup=seller_menu_kb(), parse_mode="Markdown")
 
 @dp.callback_query(F.data == "seller_seo_tips")
 async def cb_seller_seo(callback: types.CallbackQuery):
     text = (
         "📈 **Uzum Marketda Tovarni TOPga chiqarish qoidalari:**\n\n"
-        "1. **Sarlavha formulasi:** Tovar turi + Brend + Model + Asosiy xususiyat (rang/o'lcham).\n"
-        "2. **Infografika:** Birinchi rasmda oq fondagi aniq mahsulot va asosiy 3 ta ustunlik bo'lishi lozim.\n"
+        "1. **Sarlavha formulasi:** Tovar turi + Brend + Model + Asosiy xususiyat.\n"
+        "2. **Infografika:** Birinchi rasmda aniq mahsulot va asosiy 3 ta ustunlik bo'lishi lozim.\n"
         "3. **Tezkor qoldiq:** Ombordagi qoldiq soni 0 ga tushib qolmasligini nazorat qiling."
     )
     await callback.message.edit_text(text, reply_markup=seller_menu_kb(), parse_mode="Markdown")
@@ -224,7 +238,7 @@ async def show_buyer_card(event: types.Message | types.CallbackQuery):
         "🛍 **XARIDOR ASSISTENTI KARTASI**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "• **Vazifa:** Uzum Market bo'yicha tovar qidirish va narxlarni solishtirish\n"
-        "• **Afzalligi:** Qidiruv so'rovi bo'yicha to'g'ridan-to'g'ri mahsulot sahifasi va filtrlarni taqdim etish\n"
+        "• **Afzalligi:** Qidiruv so'rovi bo'yicha mahsulot havolasini taqdim etish\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "Bo'limni tanlang:"
     )
@@ -239,7 +253,7 @@ async def cb_buyer_search_start(callback: types.CallbackQuery, state: FSMContext
     await state.set_state(BuyerFlow.waiting_for_query)
     text = (
         "🔍 **Qanday mahsulot qidiryapsiz?**\n\n"
-        "Nomini yozib yuboring (masalan: *iPhone 15*, *qishki kurtka*, *mexanik klaviatura*):"
+        "Nomini yozib yuboring (masalan: *iPhone 15*, *mexanik klaviatura*):"
     )
     await callback.message.edit_text(text, reply_markup=back_to_main_kb(), parse_mode="Markdown")
     await callback.answer()
@@ -249,18 +263,16 @@ async def process_buyer_query(message: types.Message, state: FSMContext):
     query = message.text.strip()
     await state.clear()
 
-    # Uzum Market qidiruv havolasini shakllantirish
     encoded_query = query.replace(" ", "%20")
     uzum_search_url = f"https://uzum.uz/uz/search?query={encoded_query}"
 
     result_card = (
         f"🎯 **'{query}' bo'yicha qidiruv natijasi:**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📦 **Mavjud takliflar:** 10+ do'konlarda topildi\n"
+        "📦 **Mavjud takliflar:** Do'konlarda topildi\n"
         "🚚 **Yetkazib berish:** Ertaga 1 kunda topshirish punktiga (PVZ)\n"
         "🔒 **To'lov:** Tovarni olgandan so'ng yoki Uzum Nasiya orqali bo'lib to'lash\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Quyidagi tugma orqali Uzum Marketdagi mahsulotlarni to'g'ridan-to'g'ri ko'rishingiz mumkin:"
+        "━━━━━━━━━━━━━━━━━━━━━━"
     )
 
     action_kb = InlineKeyboardMarkup(
